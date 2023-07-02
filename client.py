@@ -25,6 +25,7 @@ class Order:
         self.status: Status = Status(json['status'])
         self.expires: datetime = datetime.strptime(json['expires'], "%Y-%m-%dT%H:%M:%S.%fZ")
         self.country: Country = Country(json['country'])
+        if json['sms'] is None: return
         self.sms_list: list[SMS] = [SMS(sms) for sms in json['sms']]
 
     def __repr__(self) -> str:
@@ -57,14 +58,21 @@ class Payment:
 
 
 class Product:
-    def __init__(self, target: str, operator: str, json: dict) -> None:
+    def __init__(self, target: str, operator: str, country: str, json: dict) -> None:
         self.target: Target = Target(target)
         self.cost: float = json['cost']
         self.count: int = json['count']
         self.operator: str = operator
+        self.country: Country = Country(country)
 
     def __repr__(self) -> str:
-        return f"Product(target={self.target}, cost={self.cost}, count={self.count}, operator={self.operator})"
+        return f"Product(target={self.target}, country={self.country}, cost={self.cost}, count={self.count}, operator={self.operator})"
+    
+    def __lt__(self, other) -> bool:
+        return self.cost < other.cost
+    
+    def __gt__(self, other) -> bool:
+        return self.cost > other.cost
 
 
 class Client:
@@ -83,19 +91,66 @@ class Client:
     def get_payment_history(self) -> list[Payment]:
         return [Payment(payment) for payment in send_request(f"https://{self.domain}/v1/user/payments", {"Authorization": self._api_str, "Accept": self._accept_str})['Data']]
 
-    def get_products(self, country: Country) -> list[Product]:
+    def get_products_by_country(self, country: Country) -> list[Product]:
         products: list[Product] = []
         data = send_request(f"https://{self.domain}/v1/guest/prices?country={country.value}", {"Accept": self._accept_str})[country.value]
+        
         for target, other in data.items():
             for operator, info in other.items():
                 try:
-                    product = Product(target, operator, info)
+                    product = Product(target, operator, country, info)
                 except ValueError:
                     continue
+                if product.count == 0: continue
                 products.append(product)
         return products
-
     
-cl = Client("eyJhbGciOiJSUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MTk4MjIzMzAsImlhdCI6MTY4ODI4NjMzMCwicmF5IjoiMWViNzIwODAxMjM1ZTc0NTc1YzI2ZDQwMDFlM2VlZDQiLCJzdWIiOjEyNDI2MDl9.COD7sYIAS4zokp2lMizjdEbA6Yqm33qFZXifNDoSJL7H7piRYLONu5qW7nBROX9z2VhPSbn6XGidnLFadPrYXmR5F1_PHJReE8RyIxNk1-85YA4DUnbBSFCaojuzLgdyCjjc-FmsqlUUwnKp1yZJxOxERkhrk1_WUE0EPynugmYFzuamx1WdK1YZKm0Z-rSXfphMuMzK600JxodAlFrnhrz6oaP-m2xca1VzFFUXyRD0MgDHIxCFtGqBUQKKs4rwMJWXnNxNvObsOFuC3EmUf3Ysof5Iu6ydF1GC3w2ehVbnnG-hemCkc6ax3QrMyw_rSO6IQxMr9drySFGTtPAC1A")
-data = cl.get_products(Country.Zimbabwe)
-print(data)
+    def get_products_by_target(self, target: Target) -> list[Product]:
+        products: list[Product] = []
+        data = send_request(f"https://{self.domain}/v1/guest/prices?product={target.value}", {"Accept": self._accept_str})[target.value]
+        
+        for country, other in data.items():
+            for operator, info in other.items():
+                try:
+                    product = Product(target, operator, country, info)
+                except ValueError:
+                    continue
+                if product.count == 0: continue
+                products.append(product)
+        return products
+    
+    def get_products_by_target_and_country(self, target: Target, country: Country) -> list[Product]:
+        products: list[Product] = []
+        data = send_request(f"https://{self.domain}/v1/guest/prices?product={target.value}&country={country.value}", {"Accept": self._accept_str})[country.value][target.value]
+        
+        for operator, other in data.items():
+            try:
+                product = Product(target, operator, country, other)
+            except ValueError:
+                continue
+            if product.count == 0: continue
+            products.append(product)
+        return products
+    
+    def buy_number(self, country: Country = Country.Any, target: Target = Target.Any, operator: str = 'any') -> Order:
+        return Order(send_request(f'https://{self.domain}/v1/user/buy/activation/{country.value}/{operator}/{target.value}', {"Authorization": self._api_str, "Accept": self._accept_str}))
+
+    def rebuy_number(self, target: Target, number: str) -> None:
+        send_request(f'https://{self.domain}/v1/user/reuse/{target.value}/{number[1:]}', {"Authorization": self._api_str, "Accept": self._accept_str})
+
+    def check_order(self, id: int) -> Order:
+        return Order(send_request(f'https://{self.domain}/v1/user/check/{id}', {"Authorization": self._api_str, "Accept": self._accept_str}))
+
+    def finish_order(self, id: int) -> Order:
+        return Order(send_request(f'https://{self.domain}/v1/user/finish/{id}', {"Authorization": self._api_str, "Accept": self._accept_str}))
+    
+    def cancel_order(self, id: int) -> Order:
+        return Order(send_request(f'https://{self.domain}/v1/user/cancel/{id}', {"Authorization": self._api_str, "Accept": self._accept_str}))
+    
+    def finish_order(self, id: int) -> Order:
+        return Order(send_request(f'https://{self.domain}/v1/user/ban/{id}', {"Authorization": self._api_str, "Accept": self._accept_str}))
+
+    def get_sms(self, id: int) -> list[SMS]:
+        return send_request(f'https://{self.domain}/v1/user/sms/inbox/{id}', {"Authorization": self._api_str, "Accept": self._accept_str})
+
+

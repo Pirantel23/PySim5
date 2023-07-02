@@ -16,6 +16,7 @@ class Status(Enum):
 
 
 class Country(Enum):
+    Any = 'any'
     Afghanistan = 'afghanistan'
     Albania = 'albania'
     Algeria = 'algeria'
@@ -193,6 +194,7 @@ class Country(Enum):
 
 
 class Target(Enum):
+    Any = 'any'
     Ace2three = 'ace2three'
     Adidas = 'adidas'
     Agroinform = 'agroinform'
